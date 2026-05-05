@@ -1,0 +1,70 @@
+//
+// !!! WARNING !!! AUTO-GENERATED FILE!
+// PLEASE DO NOT MODIFY IT AND USE "platformio.ini":
+// https://docs.platformio.org/page/projectconf/section_env_build.html#build-flags
+//
+{
+    "configurations": [
+        {
+            "name": "PlatformIO",
+            "includePath": [
+                "C:/Users/gabri/Poli/Embarcados/Aula1/260505-095228-zephyr-blink/include",
+                "C:/Users/gabri/Poli/Embarcados/Aula1/260505-095228-zephyr-blink/src",
+                "C:/Users/gabri/.platformio/packages/framework-zephyr/include",
+                "C:/Users/gabri/Poli/Embarcados/Aula1/260505-095228-zephyr-blink/.pio/build/frdm_kl25z/zephyr/include/generated",
+                "C:/Users/gabri/.platformio/packages/framework-zephyr/soc/arm/nxp_kinetis/kl2x",
+                "C:/Users/gabri/.platformio/packages/framework-zephyr/_pio/modules/hal/cmsis/CMSIS/Core/Include",
+                "C:/Users/gabri/.platformio/packages/framework-zephyr/_pio/modules/hal/nxp/mcux/devices/MKL25Z4",
+                "C:/Users/gabri/.platformio/packages/framework-zephyr/_pio/modules/hal/nxp/mcux/drivers/kinetis",
+                ""
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "path": [
+                    "C:/Users/gabri/Poli/Embarcados/Aula1/260505-095228-zephyr-blink/include",
+                    "C:/Users/gabri/Poli/Embarcados/Aula1/260505-095228-zephyr-blink/src",
+                    "C:/Users/gabri/.platformio/packages/framework-zephyr/include",
+                    "C:/Users/gabri/Poli/Embarcados/Aula1/260505-095228-zephyr-blink/.pio/build/frdm_kl25z/zephyr/include/generated",
+                    "C:/Users/gabri/.platformio/packages/framework-zephyr/soc/arm/nxp_kinetis/kl2x",
+                    "C:/Users/gabri/.platformio/packages/framework-zephyr/_pio/modules/hal/cmsis/CMSIS/Core/Include",
+                    "C:/Users/gabri/.platformio/packages/framework-zephyr/_pio/modules/hal/nxp/mcux/devices/MKL25Z4",
+                    "C:/Users/gabri/.platformio/packages/framework-zephyr/_pio/modules/hal/nxp/mcux/drivers/kinetis",
+                    ""
+                ]
+            },
+            "defines": [
+                "PLATFORMIO=60119",
+                "BUILD_VERSION=zephyr-v20701",
+                "BOARD_FLASH_SIZE=CONFIG_FLASH_SIZE*1024",
+                "CPU_MKL25Z128VLK4",
+                "KERNEL",
+                "NDEBUG",
+                "_FORTIFY_SOURCE=2",
+                "__PROGRAM_START",
+                "__ZEPHYR__=1",
+                ""
+            ],
+            "cStandard": "c99",
+            "forcedInclude": [
+                "C:/Users/gabri/Poli/Embarcados/Aula1/260505-095228-zephyr-blink/.pio/build/frdm_kl25z/zephyr/include/generated/autoconf.h",
+                "C:/Users/gabri/.platformio/packages/framework-zephyr/include/toolchain/zephyr_stdint.h",
+                ""
+            ],
+            "compilerPath": "C:/Users/gabri/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe",
+            "compilerArgs": [
+                "-mcpu=cortex-m0plus",
+                "-mthumb",
+                "-mabi=aapcs",
+                "-mfp16-format=ieee",
+                "-isystem",
+                "C:/Users/gabri/.platformio/packages/framework-zephyr/lib/libc/minimal/include",
+                "-isystem",
+                "c:/users/gabri/.platformio/packages/toolchain-gccarmnoneeabi/bin/../lib/gcc/arm-none-eabi/8.2.1/include",
+                "-isystem",
+                "c:/users/gabri/.platformio/packages/toolchain-gccarmnoneeabi/bin/../lib/gcc/arm-none-eabi/8.2.1/include-fixed",
+                ""
+            ]
+        }
+    ],
+    "version": 4
+}
