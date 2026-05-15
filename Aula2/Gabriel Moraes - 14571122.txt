@@ -1,0 +1,54 @@
+Nome : Gabriel Augusto Souza Moraes
+NUSP : 14571122
+
+X = (a+b) - (c+d), sendo a = 1, b = 2, c = 3, d = 4.
+
+Move a para R0
+LDR R0,1
+Move b para R1
+LDR R1,2
+Soma a+b em R0
+ADD R0,R1,R0
+R0 para memória
+LDR R1, =0xFF0C
+STR R0, [R1]      
+Move c para R0
+LDR R0, 3
+Move d para R1
+LDR R1,4
+Soma c + d para R0
+ADD R1,R0,R1
+Memória para R1
+LDR R1, =0xFF0C
+LDR R1, [R1] 
+Subtrai R1 - R0 em R0.
+SUB R0,R1,R0
+
+
+-----------------
+MOV R0, #1
+MOV R1, #2
+ADD R0, R1, R0    ; R0 = a+b = 3
+LDR R1, =0xFF0C
+STR R0, [R1]      ; salva a+b na memória
+MOV R0, #3
+MOV R1, #4
+ADD R0, R0, R1    ; R0 = c+d = 7
+LDR R1, =0xFF0C
+LDR R1, [R1]      ; R1 = a+b = 3
+SUB R0, R1, R0    ; R0 = (a+b) - (c+d) = -4
+LDR R1, =0xFF0C
+STR R0, [R1]
+
+--------------------
+MOV R0, #1
+MOV R1, #2
+ADD R0, R0, R1      ; R0 = a + b = 3
+
+MOV R1, #3
+SUB R0, R0, R1      ; R0 = (a+b) - c = 0
+
+MOV R1, #4
+SUB R0, R0, R1      ; R0 = (a+b) - c - d = -4
+LDR R1, =0xFF0C
+STR R0, [R1]
