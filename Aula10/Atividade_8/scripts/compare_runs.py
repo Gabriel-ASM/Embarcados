@@ -7,6 +7,28 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 
+TEST_RATES_HZ = {
+    0: 50,
+    1: 100,
+    2: 200,
+    3: 400,
+    4: 800,
+}
+
+CSV_FIELDS = [
+    "stage",
+    "seq",
+    "t_us",
+    "x_mg",
+    "y_mg",
+    "z_mg",
+    "xf_mg",
+    "yf_mg",
+    "zf_mg",
+    "dropped",
+]
+
+
 @dataclass
 class Summary:
     count: int = 0
@@ -28,7 +50,7 @@ class Summary:
         self.count += 1
         self.last_t_us = t_us
         self.last_seq = seq
-        self.reported_drops = max(self.reported_drops, row["dropped"])
+        self.reported_drops = max(self.reported_drops, row.get("dropped", 0))
 
     @property
     def rate_hz(self) -> float:
@@ -39,11 +61,22 @@ class Summary:
             return 0.0
         return (self.count - 1) / elapsed_s
 
+    @property
+    def lost_messages(self) -> int:
+        return max(self.seq_gaps, self.reported_drops)
+
 
 def read_csv(path: Path) -> list[dict[str, int]]:
     with path.open(newline="") as file:
         reader = csv.DictReader(file)
-        return [{key: int(value) for key, value in row.items()} for row in reader]
+        rows: list[dict[str, int]] = []
+        for row in reader:
+            parsed: dict[str, int] = {}
+            for field in CSV_FIELDS:
+                value = row.get(field, "0")
+                parsed[field] = int(value) if value not in (None, "") else 0
+            rows.append(parsed)
+        return rows
 
 
 def summarize(rows: list[dict[str, int]]) -> dict[int, Summary]:
@@ -60,22 +93,30 @@ def write_summary(path: Path, raw: dict[int, Summary], fir: dict[int, Summary]) 
         writer.writerow(
             [
                 "stage",
-                "raw_rate_hz",
-                "fir_rate_hz",
+                "target_rate_hz",
+                "raw_effective_rate_hz",
+                "fir_effective_rate_hz",
                 "raw_received",
                 "fir_received",
                 "raw_seq_gaps",
                 "fir_seq_gaps",
                 "raw_reported_drops",
                 "fir_reported_drops",
+                "raw_lost_messages",
+                "fir_lost_messages",
+                "fir_rate_delta_hz",
+                "fir_rate_delta_pct",
             ]
         )
         for stage in stages:
             raw_item = raw.get(stage, Summary())
             fir_item = fir.get(stage, Summary())
+            delta_hz = fir_item.rate_hz - raw_item.rate_hz
+            delta_pct = (delta_hz / raw_item.rate_hz * 100.0) if raw_item.rate_hz > 0 else 0.0
             writer.writerow(
                 [
                     stage,
+                    TEST_RATES_HZ.get(stage, ""),
                     f"{raw_item.rate_hz:.2f}",
                     f"{fir_item.rate_hz:.2f}",
                     raw_item.count,
@@ -84,6 +125,10 @@ def write_summary(path: Path, raw: dict[int, Summary], fir: dict[int, Summary]) 
                     fir_item.seq_gaps,
                     raw_item.reported_drops,
                     fir_item.reported_drops,
+                    raw_item.lost_messages,
+                    fir_item.lost_messages,
+                    f"{delta_hz:.2f}",
+                    f"{delta_pct:.2f}",
                 ]
             )
 
@@ -144,8 +189,8 @@ def plot_rates(raw: dict[int, Summary], fir: dict[int, Summary], output: Path) -
         width,
         label="fir",
     )
-    ax.set_xticks(positions, [str(stage) for stage in stages])
-    ax.set_xlabel("stage")
+    ax.set_xticks(positions, [str(TEST_RATES_HZ.get(stage, stage)) for stage in stages])
+    ax.set_xlabel("target rate (Hz)")
     ax.set_ylabel("effective rate (Hz)")
     ax.grid(True, axis="y")
     ax.legend(loc="upper left")
@@ -154,8 +199,64 @@ def plot_rates(raw: dict[int, Summary], fir: dict[int, Summary], output: Path) -
     plt.close(fig)
 
 
+def write_analysis(path: Path, raw: dict[int, Summary], fir: dict[int, Summary]) -> None:
+    stages = sorted(set(raw) | set(fir))
+    raw_best_stage = max(stages, key=lambda stage: raw.get(stage, Summary()).rate_hz, default=None)
+    fir_best_stage = max(stages, key=lambda stage: fir.get(stage, Summary()).rate_hz, default=None)
+
+    def fmt_stage(stage: int | None, data: dict[int, Summary]) -> str:
+        if stage is None:
+            return "sem dados"
+        target = TEST_RATES_HZ.get(stage, stage)
+        return f"stage {stage} ({target} Hz alvo): {data.get(stage, Summary()).rate_hz:.2f} Hz efetivos"
+
+    loss_stages = [
+        stage
+        for stage in stages
+        if raw.get(stage, Summary()).lost_messages > 0 or fir.get(stage, Summary()).lost_messages > 0
+    ]
+    no_loss_stages = [
+        stage
+        for stage in stages
+        if raw.get(stage, Summary()).lost_messages == 0 and fir.get(stage, Summary()).lost_messages == 0
+    ]
+
+    with path.open("w", encoding="utf-8") as file:
+        file.write("Respostas automáticas para a análise\n")
+        file.write("===================================\n\n")
+        file.write(f"1. Maior taxa sem FIR: {fmt_stage(raw_best_stage, raw)}.\n")
+        file.write(f"2. Maior taxa com FIR: {fmt_stage(fir_best_stage, fir)}.\n")
+        file.write(
+            "3. Impacto do FIR: compare a coluna fir_rate_delta_pct em rate_comparison.csv; "
+            "valores próximos de 0 indicam baixo impacto de processamento.\n"
+        )
+        file.write(
+            "4. Logging/UART transmitiu todos os dados quando seq_gaps e reported_drops ficaram zerados.\n"
+        )
+        if loss_stages:
+            readable = ", ".join(str(TEST_RATES_HZ.get(stage, stage)) for stage in loss_stages)
+            file.write(f"5. Houve perda nas taxas alvo: {readable} Hz.\n")
+        else:
+            file.write("5. Não houve perda detectada nos arquivos capturados.\n")
+        file.write(
+            "6. Gargalo provável: comunicação, quando há drops/seq_gaps sem grande queda entre raw e FIR; "
+            "processamento, quando a taxa efetiva cai apenas com FIR.\n"
+        )
+        if no_loss_stages:
+            best_no_loss = max(no_loss_stages, key=lambda stage: TEST_RATES_HZ.get(stage, stage))
+            file.write(
+                "7. Melhor compromisso sugerido: "
+                f"stage {best_no_loss} ({TEST_RATES_HZ.get(best_no_loss, best_no_loss)} Hz), "
+                "por ser a maior taxa sem perda detectada.\n"
+            )
+        else:
+            file.write(
+                "7. Melhor compromisso: usar a menor taxa com menor lost_messages em rate_comparison.csv.\n"
+            )
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compare raw and FIR accelerometer runs")
+    parser = argparse.ArgumentParser(description="Compare runs sem FIR e com FIR do acelerometro")
     parser.add_argument("--raw-csv", required=True)
     parser.add_argument("--fir-csv", required=True)
     parser.add_argument("--out-dir", default="scripts/results")
@@ -171,10 +272,12 @@ def main() -> None:
     fir_summary = summarize(fir_rows)
 
     write_summary(out_dir / "rate_comparison.csv", raw_summary, fir_summary)
+    write_analysis(out_dir / "analysis_answers.txt", raw_summary, fir_summary)
     plot_signal(raw_rows, fir_rows, args.axis, out_dir / "signal_comparison.png")
     plot_rates(raw_summary, fir_summary, out_dir / "rate_comparison.png")
 
     print(f"Wrote {out_dir / 'rate_comparison.csv'}")
+    print(f"Wrote {out_dir / 'analysis_answers.txt'}")
     print(f"Wrote {out_dir / 'signal_comparison.png'}")
     print(f"Wrote {out_dir / 'rate_comparison.png'}")
 

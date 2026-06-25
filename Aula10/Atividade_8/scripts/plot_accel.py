@@ -68,7 +68,14 @@ def parse_record(line: str, marker: str) -> list[str] | None:
 
 def parse_data(line: str) -> dict[str, int] | None:
     parts = parse_record(line, "DATA,")
-    if parts is None or len(parts) < 11:
+    if parts is None:
+        return None
+
+    # Formato revisado: DATA + 10 campos.
+    # Compatibilidade: se vier do firmware antigo sem o campo dropped, assume 0.
+    if len(parts) == 10:
+        parts.append("0")
+    if len(parts) < 11:
         return None
 
     try:
@@ -93,6 +100,24 @@ def parse_stat(line: str) -> str | None:
     return ",".join(parts)
 
 
+def write_summary_csv(path: Path, stats: dict[int, StageStats]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["stage", "received", "rate_hz", "seq_gaps", "reported_drops"])
+        for stage in sorted(stats):
+            item = stats[stage]
+            writer.writerow(
+                [
+                    stage,
+                    item.count,
+                    f"{item.rate_hz:.2f}",
+                    item.seq_gaps,
+                    item.max_reported_drop,
+                ]
+            )
+
+
 def print_summary(stats: dict[int, StageStats]) -> None:
     print("\nSummary by stage")
     print("stage,received,rate_hz,seq_gaps,reported_drops")
@@ -105,18 +130,28 @@ def print_summary(stats: dict[int, StageStats]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Live plot for FRDM-KL25Z accelerometer data")
-    parser.add_argument("--port", required=True, help="Serial port, for example COM7")
+    parser = argparse.ArgumentParser(
+        description="Live plot e captura CSV para dados do MMA8451Q na FRDM-KL25Z"
+    )
+    parser.add_argument("--port", required=True, help="Porta serial, por exemplo COM7")
     parser.add_argument("--baud", type=int, default=115200)
-    parser.add_argument("--seconds", type=float, default=0.0, help="0 means run until Ctrl+C")
+    parser.add_argument("--seconds", type=float, default=0.0, help="0 roda ate Ctrl+C ou META,done")
     parser.add_argument("--csv", default="scripts/results/run.csv")
+    parser.add_argument("--summary-csv", default="scripts/results/run_summary.csv")
     parser.add_argument("--png", default="scripts/results/live_plot.png")
     parser.add_argument("--axis", choices=("x", "y", "z"), default="z")
     parser.add_argument("--window", type=int, default=500)
-    parser.add_argument("--no-plot", action="store_true")
+    parser.add_argument("--no-plot", action="store_true", help="Captura CSV sem atualizar grafico em tempo real")
+    parser.add_argument(
+        "--time-source",
+        choices=("auto", "board", "host"),
+        default="auto",
+        help="Fonte de tempo para CSV/grafico. auto usa board, mas cai para host se o timestamp nao avançar.",
+    )
     args = parser.parse_args()
 
     csv_path = Path(args.csv)
+    summary_path = Path(args.summary_csv)
     png_path = Path(args.png)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     png_path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,6 +163,10 @@ def main() -> None:
     raw_values = deque(maxlen=args.window)
     fir_values = deque(maxlen=args.window)
     t0_us: int | None = None
+    host_t0 = time.monotonic()
+    last_board_t_us: int | None = None
+    repeated_board_time = 0
+    using_host_time = args.time_source == "host"
 
     fig = ax = raw_line = fir_line = None
     if not args.no_plot:
@@ -143,6 +182,7 @@ def main() -> None:
     with serial.Serial(args.port, args.baud, timeout=0.1) as ser, csv_path.open(
         "w", newline=""
     ) as file:
+        ser.reset_input_buffer()
         writer = csv.DictWriter(file, fieldnames=CSV_FIELDS)
         writer.writeheader()
         start = time.monotonic()
@@ -171,6 +211,18 @@ def main() -> None:
                 if row is None:
                     continue
 
+                board_t_us = row["t_us"]
+                if args.time_source == "auto":
+                    if last_board_t_us is not None and board_t_us <= last_board_t_us:
+                        repeated_board_time += 1
+                    last_board_t_us = board_t_us
+
+                    if repeated_board_time >= 5:
+                        using_host_time = True
+
+                if using_host_time:
+                    row["t_us"] = int((time.monotonic() - host_t0) * 1_000_000)
+
                 writer.writerow(row)
                 rows_since_flush += 1
                 if rows_since_flush >= 50:
@@ -197,11 +249,17 @@ def main() -> None:
         except KeyboardInterrupt:
             pass
 
+    write_summary_csv(summary_path, stats)
+
     if not args.no_plot and fig is not None:
+        fig.tight_layout()
         fig.savefig(png_path, dpi=150)
 
     print_summary(stats)
+    if using_host_time:
+        print("\nAviso: timestamp da placa nao avançou; foi usado tempo de recepcao do Python.")
     print(f"\nCSV: {csv_path}")
+    print(f"Summary CSV: {summary_path}")
     if not args.no_plot:
         print(f"PNG: {png_path}")
 

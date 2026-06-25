@@ -9,6 +9,18 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 
+#ifndef APP_USA_LOGGING
+#define APP_USA_LOGGING 0
+#endif
+
+#if APP_USA_LOGGING
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(atividade8, LOG_LEVEL_INF);
+#define APP_PRINT(fmt, ...) LOG_INF(fmt, ##__VA_ARGS__)
+#else
+#define APP_PRINT(fmt, ...) printk(fmt "\n", ##__VA_ARGS__)
+#endif
+
 #define NO_ACELEROMETRO DT_ALIAS(accel0)
 
 #if !DT_NODE_HAS_STATUS(NO_ACELEROMETRO, okay)
@@ -23,11 +35,14 @@
 #define APP_TEMPO_ETAPA_S 15
 #endif
 
+#ifndef APP_TAM_FILA_AMOSTRAS
+#define APP_TAM_FILA_AMOSTRAS 32
+#endif
+
 #define TAM_PILHA_AQUISICAO 2048
 #define TAM_PILHA_COMUNICACAO 2048
 #define PRIORIDADE_AQUISICAO 4
 #define PRIORIDADE_COMUNICACAO 5
-#define TAM_FILA_AMOSTRAS 32
 #define FIR_TAPS 8
 
 struct amostra {
@@ -40,13 +55,12 @@ struct amostra {
 	int32_t x_filtrado_mg;
 	int32_t y_filtrado_mg;
 	int32_t z_filtrado_mg;
-	uint32_t perdidas;
 };
 
 static const uint16_t taxas_teste_hz[] = {50, 100, 200, 400, 800};
 static const struct device *const acelerometro = DEVICE_DT_GET(NO_ACELEROMETRO);
 
-K_MSGQ_DEFINE(fila_amostras, sizeof(struct amostra), TAM_FILA_AMOSTRAS, 4);
+K_MSGQ_DEFINE(fila_amostras, sizeof(struct amostra), APP_TAM_FILA_AMOSTRAS, 4);
 K_SEM_DEFINE(iniciar_aquisicao, 0, 1);
 
 static volatile int etapa_atual = -1;
@@ -59,12 +73,23 @@ static atomic_t total_erros;
 
 static uint64_t tempo_us(void)
 {
-	return k_cyc_to_us_floor64(k_cycle_get_64());
+	/*
+	 * Usa o uptime do kernel em vez do contador de ciclos.
+	 * Em algumas configuracoes da FRDM-KL25Z, k_cycle_get_64() pode nao
+	 * avançar como esperado para este uso e todos os pontos aparecem em t=0.
+	 */
+	return k_ticks_to_us_floor64(k_uptime_ticks());
 }
 
 static void imprimir_meta(int etapa, uint32_t taxa_hz)
 {
-	printk("META,stage,%d,rate_hz=%u,fir=%d\n", etapa, taxa_hz, APP_USA_FIR);
+	APP_PRINT("META,stage,%d,rate_hz=%u,fir=%d,logging=%d,queue=%d,taps=%d",
+		  etapa,
+		  taxa_hz,
+		  APP_USA_FIR,
+		  APP_USA_LOGGING,
+		  APP_TAM_FILA_AMOSTRAS,
+		  FIR_TAPS);
 }
 
 static void imprimir_estatistica(int etapa)
@@ -75,18 +100,30 @@ static void imprimir_estatistica(int etapa)
 	uint32_t erros = (uint32_t)atomic_get(&total_erros);
 	uint32_t hz_x100 = (produzidas * 100U) / APP_TEMPO_ETAPA_S;
 
-	printk("STAT,%d,%u,%u,%u,%u,%u\n",
-	       etapa, produzidas, enviadas, perdidas, erros, hz_x100);
+	APP_PRINT("STAT,%d,%u,%u,%u,%u,%u",
+		  etapa,
+		  produzidas,
+		  enviadas,
+		  perdidas,
+		  erros,
+		  hz_x100);
 }
 
 static void imprimir_amostra(const struct amostra *amostra)
 {
-	printk("DATA,%u,%u,%llu,%d,%d,%d,%d,%d,%d,%u\n",
-	       amostra->etapa, amostra->seq,
-	       (unsigned long long)amostra->tempo_us,
-	       amostra->x_mg, amostra->y_mg, amostra->z_mg,
-	       amostra->x_filtrado_mg, amostra->y_filtrado_mg,
-	       amostra->z_filtrado_mg, amostra->perdidas);
+	uint32_t perdidas = (uint32_t)atomic_get(&total_perdidas);
+
+	APP_PRINT("DATA,%u,%u,%llu,%d,%d,%d,%d,%d,%d,%u",
+		  amostra->etapa,
+		  amostra->seq,
+		  (unsigned long long)amostra->tempo_us,
+		  amostra->x_mg,
+		  amostra->y_mg,
+		  amostra->z_mg,
+		  amostra->x_filtrado_mg,
+		  amostra->y_filtrado_mg,
+		  amostra->z_filtrado_mg,
+		  perdidas);
 }
 
 static int configurar_taxa(uint32_t taxa_hz)
@@ -96,8 +133,10 @@ static int configurar_taxa(uint32_t taxa_hz)
 		.val2 = 0,
 	};
 
-	return sensor_attr_set(acelerometro, SENSOR_CHAN_ALL,
-			       SENSOR_ATTR_SAMPLING_FREQUENCY, &taxa);
+	return sensor_attr_set(acelerometro,
+				       SENSOR_CHAN_ALL,
+				       SENSOR_ATTR_SAMPLING_FREQUENCY,
+				       &taxa);
 }
 
 static void zerar_contadores(void)
@@ -110,8 +149,8 @@ static void zerar_contadores(void)
 
 static void desativar_etapa(void)
 {
-	taxa_atual_hz = 0;
 	etapa_atual = -1;
+	taxa_atual_hz = 0;
 }
 
 static void preparar_etapa(void)
@@ -123,8 +162,8 @@ static void preparar_etapa(void)
 
 static void ativar_etapa(int etapa, uint32_t taxa_hz)
 {
-	etapa_atual = etapa;
 	taxa_atual_hz = taxa_hz;
+	etapa_atual = etapa;
 	imprimir_meta(etapa, taxa_hz);
 }
 
@@ -217,6 +256,7 @@ static void thread_aquisicao(void *a, void *b, void *c)
 			ultima_etapa = etapa;
 			seq = 0;
 			proxima_amostra_us = tempo_us();
+
 #if APP_USA_FIR
 			zerar_filtro(&filtro);
 #endif
@@ -247,13 +287,12 @@ static void thread_aquisicao(void *a, void *b, void *c)
 		amostra.etapa = (uint8_t)etapa;
 		amostra.seq = seq++;
 		amostra.tempo_us = agora_us;
+
 		ler_acelerometro(&amostra, eixos);
 
 #if APP_USA_FIR
 		filtrar_amostra(&filtro, &amostra);
 #endif
-
-		amostra.perdidas = (uint32_t)atomic_get(&total_perdidas);
 
 		if (k_msgq_put(&fila_amostras, &amostra, K_NO_WAIT) != 0) {
 			atomic_inc(&total_perdidas);
@@ -284,20 +323,34 @@ static void thread_comunicacao(void *a, void *b, void *c)
 	}
 }
 
-K_THREAD_DEFINE(tid_aquisicao, TAM_PILHA_AQUISICAO, thread_aquisicao,
-		NULL, NULL, NULL, PRIORIDADE_AQUISICAO, 0, 0);
-K_THREAD_DEFINE(tid_comunicacao, TAM_PILHA_COMUNICACAO, thread_comunicacao,
-		NULL, NULL, NULL, PRIORIDADE_COMUNICACAO, 0, 0);
+K_THREAD_DEFINE(tid_aquisicao,
+		TAM_PILHA_AQUISICAO,
+		thread_aquisicao,
+		NULL, NULL, NULL,
+		PRIORIDADE_AQUISICAO,
+		0,
+		0);
+
+K_THREAD_DEFINE(tid_comunicacao,
+		TAM_PILHA_COMUNICACAO,
+		thread_comunicacao,
+		NULL, NULL, NULL,
+		PRIORIDADE_COMUNICACAO,
+		0,
+		0);
 
 int main(void)
 {
 	if (!device_is_ready(acelerometro)) {
-		printk("ERROR,accelerometer_not_ready\n");
+		APP_PRINT("ERROR,accelerometer_not_ready");
 		return 0;
 	}
 
-	printk("META,start,board=frdm_kl25z,sensor=mma8451q,fir=%d\n",
-	       APP_USA_FIR);
+	APP_PRINT("META,start,board=frdm_kl25z,sensor=mma8451q,fir=%d,logging=%d",
+		  APP_USA_FIR,
+		  APP_USA_LOGGING);
+	APP_PRINT("META,csv_header,stage,seq,t_us,x_mg,y_mg,z_mg,xf_mg,yf_mg,zf_mg,dropped");
+	APP_PRINT("META,stat_header,stage,produced,sent,dropped,errors,produced_rate_hz_x100");
 
 	k_sem_give(&iniciar_aquisicao);
 
@@ -310,24 +363,25 @@ int main(void)
 
 		ret = configurar_taxa(taxa_hz);
 		if (ret != 0) {
-			printk("ERROR,stage,%u,rate_hz=%u,configure_ret=%d\n",
-			       (unsigned int)i, taxa_hz, ret);
+			APP_PRINT("ERROR,stage,%u,rate_hz=%u,configure_ret=%d",
+				  (unsigned int)i,
+				  taxa_hz,
+				  ret);
 			continue;
 		}
 
 		k_msleep(100);
-
 		ativar_etapa(etapa, taxa_hz);
-
 		k_sleep(K_SECONDS(APP_TEMPO_ETAPA_S));
-
 		desativar_etapa();
+
+		/* Tempo para a thread de comunicacao esvaziar a fila antes do STAT. */
 		k_sleep(K_MSEC(1000));
 		imprimir_estatistica(etapa);
 		k_sleep(K_MSEC(250));
 	}
 
-	printk("META,done\n");
+	APP_PRINT("META,done");
 
 	while (1) {
 		k_sleep(K_SECONDS(1));

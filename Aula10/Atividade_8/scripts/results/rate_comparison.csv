@@ -1,0 +1,6 @@
+stage,target_rate_hz,raw_effective_rate_hz,fir_effective_rate_hz,raw_received,fir_received,raw_seq_gaps,fir_seq_gaps,raw_reported_drops,fir_reported_drops,raw_lost_messages,fir_lost_messages,fir_rate_delta_hz,fir_rate_delta_pct
+0,50,0.00,39.12,0,222,0,0,0,0,0,0,39.12,0.00
+1,100,102.30,92.30,45,1502,0,0,0,0,0,0,-10.00,-9.77
+2,200,200.06,184.32,3002,3002,0,0,0,0,0,0,-15.74,-7.87
+3,400,95.60,88.59,1435,1444,4567,4555,4567,4558,4567,4558,-7.01,-7.33
+4,800,187.76,187.86,2817,2860,9182,9138,9184,9141,9184,9141,0.10,0.05

@@ -1,0 +1,10 @@
+Respostas automáticas para a análise
+===================================
+
+1. Maior taxa sem FIR: stage 2 (200 Hz alvo): 200.06 Hz efetivos.
+2. Maior taxa com FIR: stage 4 (800 Hz alvo): 187.86 Hz efetivos.
+3. Impacto do FIR: compare a coluna fir_rate_delta_pct em rate_comparison.csv; valores próximos de 0 indicam baixo impacto de processamento.
+4. Logging/UART transmitiu todos os dados quando seq_gaps e reported_drops ficaram zerados.
+5. Houve perda nas taxas alvo: 400, 800 Hz.
+6. Gargalo provável: comunicação, quando há drops/seq_gaps sem grande queda entre raw e FIR; processamento, quando a taxa efetiva cai apenas com FIR.
+7. Melhor compromisso sugerido: stage 2 (200 Hz), por ser a maior taxa sem perda detectada.
